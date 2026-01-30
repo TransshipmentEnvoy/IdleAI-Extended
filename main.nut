@@ -6,6 +6,10 @@
 
 require("version.nut");
 
+// Import ToyLib
+require("dep/AIToyLib/main.nut")
+import("Library.SCPLib", "SCPLib", 45);
+
 class IdleAIExtended extends AIController {
   // State variables (persisted via Save/Load)
   company_name = null;
@@ -14,7 +18,9 @@ class IdleAIExtended extends AIController {
   primary_color = null;
   secondary_color = null;
   initialized = null;
-  
+  toy_lib = null;
+  received_exemption = null;
+
   constructor() {
     this.company_name = "";
     this.manager_name = "";
@@ -22,6 +28,36 @@ class IdleAIExtended extends AIController {
     this.primary_color = -1;
     this.secondary_color = -1;
     this.initialized = false;
+    this.toy_lib = null;
+    this.received_exemption = false;
+  }
+
+  /*
+   * Callback for exemption confirmation from GS via AIToyLib
+   */
+  function ConfirmExemption(message, self) {
+    local result = (message.Data[0] == 0);
+    self.received_exemption = result;
+    AILog.Info("Exemption status confirmed: " + (result ? "GRANTED" : "DENIED"));
+    return result;
+  }
+
+  /*
+   * Ask for exemption from GS. Returns true if request was sent, false otherwise.
+   */
+  function AskForExemption() {
+    if (this.toy_lib == null) {
+      AILog.Warning("AIToyLib not initialized, cannot ask for exemption");
+      return false;
+    }
+    if (this.received_exemption) {
+      AILog.Info("Already received exemption, skipping request");
+      return false;
+    }
+    local status = true;
+    AILog.Info("Requesting exemption with status: " + status);
+    AIToyLib.AskExemption(status);
+    return true;
   }
   
   /*
@@ -30,12 +66,14 @@ class IdleAIExtended extends AIController {
   function Start() {
     // Initialize company if not already done
     if (!this.initialized) {
-      this.InitializeCompany();
+      this.Init();
     }
     
     // Pure idle loop - sleep forever
     AILog.Info("IdleAI-Extended v" + SELF_MAJORVERSION + "." + SELF_MINORVERSION + " is now idle. Company: " + this.company_name);
     while (true) {
+      // Process SCP events for AIToyLib
+      AIToyLib.Check();
       AIController.Sleep(1000);  // Sleep for 1000 ticks
     }
   }
@@ -43,7 +81,7 @@ class IdleAIExtended extends AIController {
   /*
    * Initialize company settings (random names and colors)
    */
-  function InitializeCompany() {
+  function Init() {
     // Random company names (business-like)
     local company_names = [
       "Pacific Railway",
@@ -92,25 +130,28 @@ class IdleAIExtended extends AIController {
       AICompany.COLOUR_WHITE
     ];
     
-    // Use current tick as random seed
-    local tick = AIController.GetTick();
-    
-    // Select random company name
-    this.company_name = company_names[tick % company_names.len()];
+    // Select random company name using AIBase.RandRange
+    local company_idx = AIBase.RandRange(company_names.len());
+    this.company_name = company_names[company_idx];
+    AILog.Info("Selected company name: " + this.company_name + " (index: " + company_idx + ")");
     
     // Select random manager
-    local manager = manager_pool[tick % manager_pool.len()];
+    local manager_idx = AIBase.RandRange(manager_pool.len());
+    local manager = manager_pool[manager_idx];
     this.manager_name = manager.name;
     this.president_gender = manager.gender;
+    AILog.Info("Selected manager: " + this.manager_name + " (index: " + manager_idx + ")");
     
     // Select random colors (ensure they're different)
-    local color_idx1 = tick % color_pool.len();
-    local color_idx2 = (tick + 3) % color_pool.len();
-    if (color_idx1 == color_idx2) {
-      color_idx2 = (color_idx2 + 1) % color_pool.len();
+    local color_idx1 = AIBase.RandRange(color_pool.len());
+    local color_idx2 = AIBase.RandRange(color_pool.len());
+    // Keep generating random second color until it's different from first
+    while (color_idx1 == color_idx2) {
+      color_idx2 = AIBase.RandRange(color_pool.len());
     }
     this.primary_color = color_pool[color_idx1];
     this.secondary_color = color_pool[color_idx2];
+    AILog.Info("Selected colors: primary index " + color_idx1 + ", secondary index " + color_idx2);
     
     // Apply settings
     AICompany.SetName(this.company_name);
@@ -122,9 +163,15 @@ class IdleAIExtended extends AIController {
     
     // Set loan to 0 (repay all)
     this.RepayAllLoans();
-    
+
+    // Initialize AIToyLib for SCP communication
+    this.toy_lib = AIToyLib(null, this);
+    AILog.Info("AIToyLib initialized for exemption requests");
+
+    this.AskForExemption();
+
     this.initialized = true;
-    
+
     AILog.Info("Company initialized: " + this.company_name);
     AILog.Info("President: " + this.manager_name);
   }
@@ -188,7 +235,8 @@ class IdleAIExtended extends AIController {
       president_gender = this.president_gender,
       primary_color = this.primary_color,
       secondary_color = this.secondary_color,
-      initialized = this.initialized
+      initialized = this.initialized,
+      received_exemption = this.received_exemption
     };
   }
   
@@ -223,7 +271,16 @@ class IdleAIExtended extends AIController {
     if ("initialized" in data) {
       this.initialized = data.initialized;
     }
-    
+    if ("received_exemption" in data) {
+      this.received_exemption = data.received_exemption;
+    }
+
+    // Reinitialize AIToyLib after loading
+    if (this.initialized) {
+      this.toy_lib = AIToyLib(null, this);
+      AILog.Info("AIToyLib reinitialized after loading");
+    }
+
     AILog.Info("State loaded successfully");
   }
 }
