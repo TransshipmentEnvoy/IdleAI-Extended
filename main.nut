@@ -68,7 +68,12 @@ class IdleAIExtended extends AIController {
     if (!this.initialized) {
       this.Init();
     }
-    
+
+    // Initialize AIToyLib for SCP communication
+    this.toy_lib = AIToyLib(null, this);
+    AILog.Info("AIToyLib initialized for exemption requests");
+    this.AskForExemption();
+
     // Pure idle loop - sleep forever
     AILog.Info("IdleAI-Extended v" + SELF_MAJORVERSION + "." + SELF_MINORVERSION + " is now idle. Company: " + this.company_name);
     while (true) {
@@ -163,12 +168,6 @@ class IdleAIExtended extends AIController {
     
     // Set loan to 0 (repay all)
     this.RepayAllLoans();
-
-    // Initialize AIToyLib for SCP communication
-    this.toy_lib = AIToyLib(null, this);
-    AILog.Info("AIToyLib initialized for exemption requests");
-
-    this.AskForExemption();
 
     this.initialized = true;
 
@@ -273,12 +272,6 @@ class IdleAIExtended extends AIController {
     }
     if ("received_exemption" in data) {
       this.received_exemption = data.received_exemption;
-    }
-
-    // Reinitialize AIToyLib after loading
-    if (this.initialized) {
-      this.toy_lib = AIToyLib(null, this);
-      AILog.Info("AIToyLib reinitialized after loading");
     }
 
     AILog.Info("State loaded successfully");
